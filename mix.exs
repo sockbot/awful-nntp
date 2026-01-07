@@ -27,7 +27,9 @@ defmodule AwfulNntp.MixProject do
   defp deps do
     [
       {:req, "~> 0.4.0"},
-      {:floki, "~> 0.35.0"}
+      {:floki, "~> 0.35.0"},
+      {:bypass, "~> 2.1", only: :test},
+      {:mox, "~> 1.1", only: :test}
     ]
   end
 
