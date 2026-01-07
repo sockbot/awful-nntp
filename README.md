@@ -21,7 +21,21 @@ Something Awful forums to NNTP bridge - Browse SA forums with your favorite NNTP
 
 ## Installation
 
-Clone and build:
+### Arch Linux
+
+Install Erlang dependencies (Arch splits Erlang into separate packages):
+
+```bash
+sudo pacman -S elixir erlang-public_key erlang-ssl erlang-parsetools
+```
+
+### Debian/Ubuntu
+
+```bash
+sudo apt install elixir erlang
+```
+
+### Build from source
 
 ```bash
 git clone https://github.com/sockbot/awful-nntp.git
