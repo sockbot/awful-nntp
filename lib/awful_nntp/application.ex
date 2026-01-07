@@ -7,13 +7,18 @@ defmodule AwfulNntp.Application do
 
   @impl true
   def start(_type, _args) do
+    port = Application.get_env(:awful_nntp, :port, 1199)
+
     children = [
-      # Starts a worker by calling: AwfulNntp.Worker.start_link(arg)
-      # {AwfulNntp.Worker, arg}
+      # Dynamic supervisor for connection handlers
+      {DynamicSupervisor, name: AwfulNntp.ConnectionSupervisor, strategy: :one_for_one},
+      # TCP server
+      %{
+        id: AwfulNntp.NNTP.Server,
+        start: {AwfulNntp.NNTP.Server, :start_link, [[port: port]]}
+      }
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: AwfulNntp.Supervisor]
     Supervisor.start_link(children, opts)
   end
