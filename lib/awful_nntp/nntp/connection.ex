@@ -28,6 +28,9 @@ defmodule AwfulNntp.NNTP.Connection do
 
     # Send welcome banner
     send_response(socket, 200, "awful-nntp ready (posting ok)")
+    
+    # Activate socket to receive messages
+    :inet.setopts(socket, active: true)
 
     {:ok, state}
   end
