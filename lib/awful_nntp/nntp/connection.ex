@@ -321,6 +321,20 @@ defmodule AwfulNntp.NNTP.Connection do
     end
   end
 
+  defp handle_command(:head, [], state) do
+    # No article number provided
+    send_response(state.socket, 420, "Current article number is invalid")
+    state
+  end
+
+  defp handle_command(:head, [article_spec], state) do
+    # HEAD returns just headers, not body - but we'd need to fetch the whole article
+    # For now, return 503 to indicate not supported efficiently
+    # Tin should use OVER instead for headers
+    send_response(state.socket, 503, "HEAD not efficiently supported, use OVER")
+    state
+  end
+
   defp handle_command(:over, [], state) do
     Logger.info("OVER with no args - no current article")
     send_response(state.socket, 420, "Current article number is invalid")
