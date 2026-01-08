@@ -53,7 +53,7 @@ defmodule AwfulNntp.Mapping do
   Returns {article_map, first_article, last_article, count}
   where article_map is %{article_num => {thread_id, post_num}}
   
-  Maps only first post of each thread since we don't have full post data yet.
+  Maps all posts in all threads for complete article access.
   """
   def build_article_map(threads) do
     {article_map, next_num} =
@@ -61,12 +61,15 @@ defmodule AwfulNntp.Mapping do
       |> Enum.sort_by(& &1.id)
       |> Enum.reduce({%{}, 1}, fn thread, {map, article_num} ->
         thread_id = String.to_integer(thread.id)
+        num_posts = thread.replies + 1
         
-        # Only map the first post of each thread (the OP)
-        # We don't have individual post data until someone fetches the thread
-        new_map = Map.put(map, article_num, {thread_id, 1})
+        # Create mapping for each post in this thread
+        {new_map, new_num} =
+          Enum.reduce(1..num_posts, {map, article_num}, fn post_num, {acc_map, curr_num} ->
+            {Map.put(acc_map, curr_num, {thread_id, post_num}), curr_num + 1}
+          end)
         
-        {new_map, article_num + 1}
+        {new_map, new_num}
       end)
     
     count = next_num - 1
