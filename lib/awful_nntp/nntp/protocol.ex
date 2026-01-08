@@ -16,6 +16,8 @@ defmodule AwfulNntp.NNTP.Protocol do
           | :listgroup
           | :post
           | :authinfo
+          | :over
+          | :xover
 
   @type parse_result :: {:ok, command(), [String.t()]} | {:error, atom()}
 
@@ -81,6 +83,8 @@ defmodule AwfulNntp.NNTP.Protocol do
       "STAT" -> {:ok, :stat, args}
       "POST" -> {:ok, :post, args}
       "AUTHINFO" -> {:ok, :authinfo, args}
+      "OVER" -> {:ok, :over, args}
+      "XOVER" -> {:ok, :xover, args}
       _ -> {:error, :unknown_command}
     end
   end

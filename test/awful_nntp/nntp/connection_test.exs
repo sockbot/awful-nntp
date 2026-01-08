@@ -40,7 +40,7 @@ defmodule AwfulNntp.NNTP.ConnectionTest do
       {:ok, response} = :gen_tcp.recv(client, 0, 1000)
       assert response =~ "101 Capability list"
 
-      # Read capabilities
+      # Read capabilities - now includes OVER
       {:ok, version} = :gen_tcp.recv(client, 0, 1000)
       assert version =~ "VERSION 2"
 
@@ -49,6 +49,9 @@ defmodule AwfulNntp.NNTP.ConnectionTest do
 
       {:ok, list} = :gen_tcp.recv(client, 0, 1000)
       assert list =~ "LIST ACTIVE"
+
+      {:ok, over} = :gen_tcp.recv(client, 0, 1000)
+      assert over =~ "OVER"
 
       {:ok, authinfo} = :gen_tcp.recv(client, 0, 1000)
       assert authinfo =~ "AUTHINFO USER"

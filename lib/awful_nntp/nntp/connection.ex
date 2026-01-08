@@ -73,7 +73,8 @@ defmodule AwfulNntp.NNTP.Connection do
     capabilities = [
       "VERSION 2",
       "READER",
-      "LIST ACTIVE",
+      "LIST ACTIVE OVERVIEW.FMT",
+      "OVER",
       "AUTHINFO USER"
     ]
 
@@ -87,7 +88,7 @@ defmodule AwfulNntp.NNTP.Connection do
     state
   end
 
-  defp handle_command(:list, _args, state) do
+  defp handle_command(:list, [], state) do
     # Fetch forums from SA (public, no auth needed for list)
     case fetch_forum_list() do
       {:ok, forums} ->
@@ -97,7 +98,7 @@ defmodule AwfulNntp.NNTP.Connection do
           |> Enum.map(fn forum ->
             newsgroup = AwfulNntp.Mapping.forum_to_newsgroup(forum.name)
             # Format: newsgroup high low status
-            # For now, use 0 0 y (posting allowed)
+            # For now, use 0 1 y (posting allowed)
             "#{newsgroup} 0 1 y"
           end)
 
@@ -108,6 +109,26 @@ defmodule AwfulNntp.NNTP.Connection do
         send_multi_line_response(state.socket, 215, "Newsgroups follow", [])
     end
 
+    state
+  end
+
+  defp handle_command(:list, ["OVERVIEW.FMT"], state) do
+    overview_format = [
+      "Subject:",
+      "From:",
+      "Date:",
+      "Message-ID:",
+      "References:",
+      ":bytes",
+      ":lines"
+    ]
+
+    send_multi_line_response(state.socket, 215, "Overview format follows", overview_format)
+    state
+  end
+
+  defp handle_command(:list, _args, state) do
+    send_response(state.socket, 500, "Command not implemented")
     state
   end
 
@@ -184,6 +205,44 @@ defmodule AwfulNntp.NNTP.Connection do
         send_response(state.socket, 501, "Syntax error")
         state
     end
+  end
+
+  defp handle_command(:over, [], state) do
+    send_response(state.socket, 420, "Current article number is invalid")
+    state
+  end
+
+  defp handle_command(:over, [range_or_msgid], state) do
+    case state.current_group do
+      nil ->
+        send_response(state.socket, 412, "No newsgroup selected")
+        state
+
+      group ->
+        case parse_range(range_or_msgid) do
+          {:range, start_num, end_num} ->
+            overview_lines = generate_overview_for_range(group, start_num, end_num)
+            send_multi_line_response(state.socket, 224, "Overview information follows", overview_lines)
+            state
+
+          {:single, article_num} ->
+            overview_lines = generate_overview_for_range(group, article_num, article_num)
+            send_multi_line_response(state.socket, 224, "Overview information follows", overview_lines)
+            state
+
+          {:message_id, _msgid} ->
+            send_response(state.socket, 430, "No such article")
+            state
+
+          :error ->
+            send_response(state.socket, 501, "Syntax error")
+            state
+        end
+    end
+  end
+
+  defp handle_command(:xover, args, state) do
+    handle_command(:over, args, state)
   end
 
   defp handle_command(:authinfo, ["USER", username], state) do
@@ -333,6 +392,68 @@ defmodule AwfulNntp.NNTP.Connection do
   end
 
   defp parse_article_spec(_), do: :error
+
+  defp parse_range(spec) when is_binary(spec) do
+    cond do
+      String.starts_with?(spec, "<") and String.ends_with?(spec, ">") ->
+        {:message_id, spec}
+
+      String.contains?(spec, "-") ->
+        case String.split(spec, "-", parts: 2) do
+          [start_str, ""] ->
+            case Integer.parse(start_str) do
+              {start, ""} -> {:range, start, 999_999_999}
+              _ -> :error
+            end
+
+          [start_str, end_str] ->
+            with {start, ""} <- Integer.parse(start_str),
+                 {end_num, ""} <- Integer.parse(end_str) do
+              {:range, start, end_num}
+            else
+              _ -> :error
+            end
+
+          _ ->
+            :error
+        end
+
+      String.match?(spec, ~r/^\d+$/) ->
+        case Integer.parse(spec) do
+          {num, ""} -> {:single, num}
+          _ -> :error
+        end
+
+      true ->
+        :error
+    end
+  end
+
+  defp parse_range(_), do: :error
+
+  defp generate_overview_for_range(group, start_num, end_num) do
+    group.threads
+    |> Enum.flat_map(fn thread ->
+      thread_id = String.to_integer(thread.id)
+      num_posts = thread.replies + 1
+
+      Enum.map(1..num_posts, fn post_num ->
+        article_num = AwfulNntp.Mapping.generate_article_number(thread_id, post_num)
+
+        if article_num >= start_num and article_num <= end_num do
+          AwfulNntp.Mapping.format_overview_line(
+            thread_id,
+            post_num,
+            thread.title,
+            thread.author
+          )
+        else
+          nil
+        end
+      end)
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
 
   defp fetch_and_send_article(article_num, state) do
     # Parse article number to get thread_id and post_number
