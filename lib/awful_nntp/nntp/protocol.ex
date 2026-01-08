@@ -12,8 +12,11 @@ defmodule AwfulNntp.NNTP.Protocol do
           | :head
           | :body
           | :stat
+          | :next
+          | :last
           | :list
           | :listgroup
+          | :newgroups
           | :post
           | :authinfo
           | :over
@@ -82,6 +85,9 @@ defmodule AwfulNntp.NNTP.Protocol do
       "HEAD" -> {:ok, :head, args}
       "BODY" -> {:ok, :body, args}
       "STAT" -> {:ok, :stat, args}
+      "NEXT" -> {:ok, :next, args}
+      "LAST" -> {:ok, :last, args}
+      "NEWGROUPS" -> {:ok, :newgroups, args}
       "POST" -> {:ok, :post, args}
       "AUTHINFO" -> {:ok, :authinfo, args}
       "OVER" -> {:ok, :over, args}

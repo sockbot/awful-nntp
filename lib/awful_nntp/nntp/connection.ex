@@ -163,6 +163,24 @@ defmodule AwfulNntp.NNTP.Connection do
     end
   end
 
+  defp handle_command(:newgroups, _args, state) do
+    # NEWGROUPS - return empty list (we don't track when groups were created)
+    send_multi_line_response(state.socket, 231, "List of new newsgroups follows", [])
+    state
+  end
+
+  defp handle_command(:next, _args, state) do
+    # NEXT - move to next article (we don't track current article position)
+    send_response(state.socket, 421, "No next article")
+    state
+  end
+
+  defp handle_command(:last, _args, state) do
+    # LAST - move to previous article (we don't track current article position)
+    send_response(state.socket, 422, "No previous article")
+    state
+  end
+
   defp handle_command(:list, _args, state) do
     send_response(state.socket, 500, "Command not implemented")
     state
