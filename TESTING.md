@@ -2,6 +2,16 @@
 
 Manual testing guide for awful-nntp development.
 
+## Prerequisites
+
+### Set up credentials
+
+```bash
+cd ~/dev/awful-nntp
+cp .env.example .env
+# Edit .env with your SA username/password
+```
+
 ## Quick Start
 
 ### Start the Server
@@ -51,6 +61,26 @@ AUTHINFO USER
 
 ### Test LIST Command
 
+**First, authenticate:**
+```
+AUTHINFO USER your_sa_username
+```
+
+**Expected response:**
+```
+381 Password required
+```
+
+```
+AUTHINFO PASS your_sa_password
+```
+
+**Expected response:**
+```
+281 Authentication accepted
+```
+
+**Now list forums:**
 ```
 LIST
 ```
@@ -58,10 +88,14 @@ LIST
 **Expected response:**
 ```
 215 Newsgroups follow
+sa.general-bullshit 0 0 y
+sa.games 0 0 y
+sa.sports-argument 0 0 y
+(... more forums ...)
 .
 ```
 
-(Empty for now - no SA forums configured yet)
+**Note**: This fetches real SA forum data! It requires valid SA credentials.
 
 ### Test GROUP Command
 
@@ -87,7 +121,7 @@ GROUP invalid
 ### Test AUTHINFO Commands
 
 ```
-AUTHINFO USER testuser
+AUTHINFO USER your_sa_username
 ```
 
 **Expected response:**
@@ -96,12 +130,17 @@ AUTHINFO USER testuser
 ```
 
 ```
-AUTHINFO PASS testpass
+AUTHINFO PASS your_sa_password
 ```
 
-**Expected response:**
+**Expected response (with valid credentials):**
 ```
 281 Authentication accepted
+```
+
+**Expected response (with invalid credentials):**
+```
+481 Authentication failed
 ```
 
 ### Test QUIT Command
@@ -161,16 +200,20 @@ slrn
 - ✅ Sends welcome banner
 - ✅ Parses NNTP commands
 - ✅ CAPABILITIES returns server capabilities
-- ✅ LIST returns empty (no forums yet)
-- ✅ GROUP validates newsgroup names
-- ✅ AUTHINFO accepts credentials (no validation yet)
+- ✅ AUTHINFO validates against real SA credentials
+- ✅ LIST returns real SA forums (requires authentication)
+- ✅ GROUP validates newsgroup names (stub data for now)
 - ✅ QUIT closes connection cleanly
 
+**What's In Progress:**
+- ⏳ GROUP fetching thread lists (validates names but returns stub data)
+- ⏳ ARTICLE retrieving posts (returns 430 - not implemented)
+
 **What Doesn't Work Yet:**
-- ❌ No actual SA forum data (LIST returns empty)
-- ❌ No articles to retrieve (ARTICLE returns 430)
-- ❌ No real authentication (all credentials accepted)
-- ❌ No posting support
+- ❌ No thread listing in GROUP (returns 0 articles)
+- ❌ No article retrieval (ARTICLE returns 430)
+- ❌ No posting support (POST not implemented)
+- ❌ No caching (every LIST hits SA)
 
 ## Automated Testing
 
@@ -182,15 +225,35 @@ mix test
 
 **Expected output:**
 ```
-21/23 tests passing
-2 failures (SA parser tests - not implemented yet)
+........................
+Finished in 0.1 seconds
+1 doctest, 23 tests, 0 failures
+
+All 24 tests passing ✅
 ```
 
 Run specific test file:
 
 ```bash
 mix test test/awful_nntp/nntp/protocol_test.exs
+mix test test/awful_nntp/sa/parser_test.exs
 ```
+
+## Fetching Sample Data
+
+Fetch real SA HTML for testing/development:
+
+```bash
+cd ~/dev/awful-nntp
+./scripts/fetch_sa_samples.exs
+```
+
+This creates:
+- `samples/forums.html` - Main forum list
+- `samples/forum_26.html` - Example forum (GBS)
+- `samples/thread.html` - Example thread with posts
+
+**Note**: Sample files are gitignored and not committed.
 
 ## Development Workflow
 
@@ -245,8 +308,8 @@ ss -tln | grep 1199
 
 After testing the current implementation, the next features to add are:
 
-1. **SA Forum Scraping** - Fetch real forum data
-2. **Forum List Caching** - Cache forum structure
-3. **Article Retrieval** - Fetch and format posts
-4. **Authentication** - Real SA login integration
-5. **Posting Support** - Create threads and replies
+1. **GROUP Command** - Fetch thread lists from SA forums
+2. **ARTICLE Command** - Fetch and format individual posts
+3. **Caching Layer** - Cache forums/threads/posts to reduce SA load
+4. **Posting Support** - Create threads and replies
+5. **Error Handling** - Better handling of SA errors and edge cases

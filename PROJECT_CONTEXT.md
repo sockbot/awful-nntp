@@ -1,7 +1,7 @@
 # Project Context: awful-nntp
 
-**Last Updated**: Current session
-**Status**: Early development - Core protocol working, SA integration in progress
+**Last Updated**: January 7, 2025
+**Status**: Active development - Core features working, ~60% complete
 
 ## 1. Project Overview
 
@@ -11,12 +11,14 @@
 - **TCP server**: ✅ Running on port 1199
 - **NNTP protocol parser**: ✅ Implemented and tested
 - **SA authentication**: ✅ Working (login flow complete)
+- **SA HTML parser**: ✅ Complete (forums, threads, posts)
 - **Connection handling**: ✅ GenServer per connection
-- **Forum fetching**: ❌ Not yet implemented
-- **Article retrieval**: ❌ Placeholder only
+- **Forum fetching**: ✅ LIST command returns real SA forums
+- **Mapping layer**: ✅ Converts SA data to NNTP format
+- **Article retrieval**: ⏳ In progress (GROUP next)
 - **Posting**: ❌ Not yet implemented
 
-The server can accept NNTP clients, parse commands, and authenticate with SA forums. Next phase is fetching and parsing forum/thread data.
+The server can authenticate with SA, fetch real forum data, and return it via NNTP LIST command. Next phase is implementing GROUP and ARTICLE commands.
 
 ## 2. Architecture Summary
 
@@ -34,7 +36,7 @@ NNTP Client (tin/slrn) <--NNTP--> awful-nntp <--HTTP--> SA Forums (web scraping)
 
 **Connection Handler** (`lib/awful_nntp/nntp/connection.ex`)
 - One GenServer per NNTP client
-- Maintains connection state (authenticated, current_group)
+- Maintains connection state (authenticated, current_group, sa_client)
 - Processes commands and sends responses
 
 **Protocol Parser** (`lib/awful_nntp/nntp/protocol.ex`)
@@ -46,6 +48,17 @@ NNTP Client (tin/slrn) <--NNTP--> awful-nntp <--HTTP--> SA Forums (web scraping)
 - HTTP client using Req library
 - Handles SA authentication (cookies)
 - Fetches forum/thread pages
+
+**SA Parser** (`lib/awful_nntp/sa/parser.ex`)
+- HTML parser using Floki
+- Extracts forums from main page
+- Extracts threads from forum pages
+- Extracts posts from thread pages
+
+**Mapping Layer** (`lib/awful_nntp/mapping.ex`)
+- Converts SA forums to NNTP newsgroups
+- Converts SA threads to NNTP article lists
+- Formats SA posts as NNTP articles with headers
 
 ### Supervisor Tree
 ```
@@ -108,10 +121,12 @@ lib/awful_nntp/
 ├── application.ex              # OTP Application & supervision
 ├── nntp/
 │   ├── server.ex              # TCP server (complete)
-│   ├── connection.ex          # Connection handler (mostly complete)
+│   ├── connection.ex          # Connection handler (complete)
 │   └── protocol.ex            # Protocol parser (complete)
-└── sa/
-    └── client.ex              # HTTP client (auth working, ready for scraping)
+├── sa/
+│   ├── client.ex              # HTTP client (complete)
+│   └── parser.ex              # HTML parser (complete)
+└── mapping.ex                  # SA to NNTP data conversion (complete)
 ```
 
 ## 4. Current State
@@ -123,26 +138,32 @@ lib/awful_nntp/
 3. **Welcome banner**: Sends `200 awful-nntp ready (posting ok)`
 4. **CAPABILITIES**: Returns server capabilities list
 5. **QUIT**: Closes connection gracefully
-6. **LIST**: Returns empty newsgroup list (no forums fetched yet)
-7. **GROUP**: Validates newsgroup names, returns stub data
-8. **AUTHINFO USER/PASS**: Accepts credentials (stored but not used yet)
-9. **SA authentication**: Successfully logs into SA and gets cookies
+6. **AUTHINFO USER/PASS**: Authenticates with SA, stores authenticated client
+7. **SA authentication**: Successfully logs into SA and gets cookies
+8. **LIST command**: Returns real SA forums from authenticated session
+9. **SA HTML parsing**: Parses forums, threads, and posts from HTML
+10. **Mapping layer**: Converts SA data to NNTP format
 
-### What Doesn't Work ❌
+### What's In Progress ⏳
 
-1. **Forum listing**: LIST returns empty (needs SA.Parser module)
-2. **Article retrieval**: ARTICLE returns 430 (needs thread/post fetching)
-3. **Real authentication**: AUTHINFO accepts anything (needs SA integration)
-4. **Posting**: POST not implemented
-5. **Thread parsing**: No HTML parser module yet
+1. **GROUP command**: Needs to fetch thread list for selected forum
+2. **ARTICLE command**: Needs to fetch and format individual posts
+
+### What Doesn't Work Yet ❌
+
+1. **Thread listing**: GROUP returns stub data (needs thread fetching)
+2. **Article retrieval**: ARTICLE returns 430 (needs post fetching)
+3. **Posting**: POST not implemented
+4. **Caching**: No caching layer yet (every LIST fetches fresh data)
 
 ### Test Status
 
-**23 tests total, 21 passing, 2 failing**
-- Protocol tests: ✅ All passing
-- Connection tests: ✅ All passing
-- SA Client tests: ✅ All passing
-- SA Parser tests: ❌ 2 failing (module not implemented yet)
+**24 tests total, all passing ✅**
+- Protocol tests: ✅ All passing (9 tests)
+- Connection tests: ✅ All passing (5 tests)
+- SA Client tests: ✅ All passing (3 tests)
+- SA Parser tests: ✅ All passing (6 tests)
+- Mapping tests: ✅ All passing (1 doctest)
 
 Run tests: `mix test`
 
@@ -150,37 +171,40 @@ Run tests: `mix test`
 
 ### Immediate Priorities (in order)
 
-1. **Create SA.Parser module** (`lib/awful_nntp/sa/parser.ex`)
-   - `parse_forum_list/1` - Extract forums from main page
-   - `parse_thread_list/1` - Extract threads from forum page
-   - `parse_posts/1` - Extract posts from thread page
-   - Use Floki for HTML parsing (already in deps)
+1. **Implement GROUP command** ✅ Started
+   - Fetch thread list for selected forum
+   - Parse thread HTML with SA.Parser
+   - Map threads to article numbers
+   - Return article range and count
 
-2. **Integrate SA.Client with Connection**
-   - Store authenticated client in Connection state
-   - Call `SA.Client.authenticate/2` on AUTHINFO PASS
-   - Fetch real forum data for LIST command
-   - Fetch thread list for GROUP command
-
-3. **Implement article retrieval**
+2. **Implement ARTICLE/HEAD/BODY commands**
    - Parse article numbers (thread_id * 1000000 + post_num)
    - Fetch and parse thread HTML
    - Format posts as NNTP articles with headers
-   - Implement ARTICLE, HEAD, BODY commands
+   - Use Mapping module for formatting
 
-4. **Add caching layer**
+3. **Add caching layer**
    - Create Cache GenServer with ETS table
    - Cache forums (15 min TTL)
    - Cache threads (5 min TTL)
    - Cache posts (30 min TTL)
+   - Reduces SA load and improves performance
 
-5. **Implement posting**
+4. **Implement posting**
    - POST command handler
    - Submit replies to SA via HTTP POST
    - Handle SA's CSRF tokens
+   - Support thread creation and replies
+
+5. **Error handling and edge cases**
+   - Handle SA errors (banned, thread deleted, etc.)
+   - Rate limiting on SA requests
+   - Handle locked/archived threads
+   - Better error messages to client
 
 ### Lower Priority
-- SSL/TLS support (NNTPS)
+- SSL/TLS support (NNTPS on port 563)
+- XOVER command for better client support
 - Search functionality
 - Persistent cache (Redis/SQLite)
 - Metrics/telemetry
@@ -282,14 +306,20 @@ mix compile
 - `lib/awful_nntp/nntp/protocol.ex` - Protocol parser/formatter
 
 ### SA Integration
-- `lib/awful_nntp/sa/client.ex` - HTTP client & auth
-- `lib/awful_nntp/sa/parser.ex` - **TODO**: HTML parsing
+- `lib/awful_nntp/sa/client.ex` - HTTP client & auth ✅
+- `lib/awful_nntp/sa/parser.ex` - HTML parsing ✅
+
+### Mapping Layer
+- `lib/awful_nntp/mapping.ex` - SA to NNTP conversion ✅
 
 ### Tests
 - `test/awful_nntp/nntp/protocol_test.exs` - Protocol tests ✅
 - `test/awful_nntp/nntp/connection_test.exs` - Connection tests ✅
 - `test/awful_nntp/sa/client_test.exs` - SA client tests ✅
-- `test/awful_nntp/sa/parser_test.exs` - Parser tests ❌ (module missing)
+- `test/awful_nntp/sa/parser_test.exs` - Parser tests ✅
+
+### Scripts
+- `scripts/fetch_sa_samples.exs` - Fetch real SA HTML for testing
 
 ### Documentation
 - `README.md` - Project overview
@@ -355,20 +385,32 @@ Template file with placeholder values.
 - Each connection stores its own authenticated client in memory
 - Credentials are cleared when connection closes
 
-### How Auth Works
+### How Auth Works (✅ Implemented)
 
 1. Client sends `AUTHINFO USER <username>`
 2. Server responds `381 Password required`
 3. Client sends `AUTHINFO PASS <password>`
 4. Server calls `SA.Client.authenticate(username, password)`
 5. SA.Client POSTs to SA login page, extracts cookies
-6. Returns authenticated Req client
+6. Returns authenticated Req client (or error)
 7. Connection stores authenticated client in state
-8. Future requests use this client to fetch SA content
+8. Future requests (LIST, GROUP, etc.) use this client to fetch SA content
 
-### Current Limitation
+### Fetching Sample HTML Files
 
-AUTHINFO currently accepts any credentials and doesn't validate against SA. The SA.Client.authenticate/2 function is implemented but not yet called from the Connection handler. This needs to be integrated.
+A script is provided to fetch real SA HTML for testing/development:
+
+```bash
+cd ~/dev/awful-nntp
+./scripts/fetch_sa_samples.exs
+```
+
+This fetches:
+- `samples/forums.html` - Main forum list
+- `samples/forum_26.html` - Example forum (GBS)
+- `samples/thread.html` - Example thread with posts
+
+Samples are in `.gitignore` and not committed to avoid copyright issues.
 
 ---
 
@@ -385,7 +427,7 @@ AUTHINFO currently accepts any credentials and doesn't validate against SA. The 
 2. **Run tests**:
    ```bash
    mix test
-   # Expect 21/23 passing (SA.Parser not implemented)
+   # All 24 tests passing ✅
    ```
 
 3. **Start server**:
@@ -400,7 +442,13 @@ AUTHINFO currently accepts any credentials and doesn't validate against SA. The 
    QUIT
    ```
 
-5. **Next task**: Implement `lib/awful_nntp/sa/parser.ex` to parse SA HTML pages
+5. **Fetch sample data** (optional):
+   ```bash
+   ./scripts/fetch_sa_samples.exs
+   # Fetches real SA HTML for testing
+   ```
+
+6. **Next task**: Implement GROUP command to fetch thread lists
 
 ---
 
@@ -414,11 +462,11 @@ AUTHINFO currently accepts any credentials and doesn't validate against SA. The 
 
 ## Known Issues
 
-1. Parser module not implemented (2 tests failing)
-2. AUTHINFO doesn't actually validate against SA yet
-3. No rate limiting on SA requests
-4. No handling of SA errors (banned, thread deleted, etc.)
-5. Socket isn't set to `active: true` after handoff (needs `:inet.setopts`)
+1. No caching (every LIST command hits SA)
+2. No rate limiting on SA requests
+3. No handling of SA errors (banned, thread deleted, etc.)
+4. GROUP command not fully implemented yet
+5. ARTICLE command not implemented yet
 
 ## Resources
 
