@@ -164,9 +164,26 @@ defmodule AwfulNntp.NNTP.Connection do
     state
   end
 
-  defp handle_command(:article, _args, state) do
-    send_response(state.socket, 430, "No such article")
+  defp handle_command(:article, [], state) do
+    # No article number provided
+    send_response(state.socket, 420, "Current article number is invalid")
     state
+  end
+
+  defp handle_command(:article, [article_spec], state) do
+    case parse_article_spec(article_spec) do
+      {:article_num, article_num} ->
+        fetch_and_send_article(article_num, state)
+
+      {:message_id, _message_id} ->
+        # TODO: Support message-id lookup
+        send_response(state.socket, 430, "No such article")
+        state
+
+      :error ->
+        send_response(state.socket, 501, "Syntax error")
+        state
+    end
   end
 
   defp handle_command(:authinfo, ["USER", username], state) do
@@ -293,6 +310,103 @@ defmodule AwfulNntp.NNTP.Connection do
     count = length(article_numbers)
 
     {first, last, count}
+  end
+
+  # Article handling helpers
+
+  defp parse_article_spec(spec) when is_binary(spec) do
+    cond do
+      # Message-ID format: <...>
+      String.starts_with?(spec, "<") and String.ends_with?(spec, ">") ->
+        {:message_id, spec}
+
+      # Article number
+      String.match?(spec, ~r/^\d+$/) ->
+        case Integer.parse(spec) do
+          {num, ""} -> {:article_num, num}
+          _ -> :error
+        end
+
+      true ->
+        :error
+    end
+  end
+
+  defp parse_article_spec(_), do: :error
+
+  defp fetch_and_send_article(article_num, state) do
+    # Parse article number to get thread_id and post_number
+    {thread_id, post_number} = AwfulNntp.Mapping.parse_article_number(article_num)
+
+    # Fetch the thread
+    client = state.sa_client || Req.new(base_url: "https://forums.somethingawful.com")
+
+    case AwfulNntp.SA.Client.fetch_thread(client, thread_id) do
+      {:ok, html} ->
+        case AwfulNntp.SA.Parser.parse_posts(html) do
+          {:ok, posts} ->
+            # Get the specific post by number (1-indexed)
+            case Enum.at(posts, post_number - 1) do
+              nil ->
+                send_response(state.socket, 423, "No article with that number")
+                state
+
+              post ->
+                # Format and send the article
+                send_article(state.socket, article_num, thread_id, post, state)
+                state
+            end
+
+          {:error, reason} ->
+            Logger.error("Failed to parse thread posts: #{inspect(reason)}")
+            send_response(state.socket, 430, "No such article")
+            state
+        end
+
+      {:error, reason} ->
+        Logger.error("Failed to fetch thread #{thread_id}: #{inspect(reason)}")
+        send_response(state.socket, 430, "No such article")
+        state
+    end
+  end
+
+  defp send_article(socket, article_num, thread_id, post, state) do
+    # Get thread title from current group if available
+    thread_title =
+      case state.current_group do
+        %{threads: threads} ->
+          thread = Enum.find(threads, fn t -> String.to_integer(t.id) == thread_id end)
+          if thread, do: thread.title, else: "Thread #{thread_id}"
+
+        _ ->
+          "Thread #{thread_id}"
+      end
+
+    # Format headers with .invalid domain
+    headers = [
+      "Path: forums.somethingawful.com",
+      "From: #{post.author}@forums.somethingawful.invalid",
+      "Newsgroups: #{state.current_group && state.current_group.name || "sa.unknown"}",
+      "Subject: #{thread_title}",
+      "Date: #{post.date}",
+      "Message-ID: #{AwfulNntp.Mapping.generate_message_id(thread_id, post.id)}",
+      "Lines: #{count_lines(post.content)}"
+    ]
+
+    # Format content (strip HTML)
+    content = AwfulNntp.Mapping.format_post_content(post.content)
+
+    # Combine headers and content
+    article_lines = headers ++ [""] ++ String.split(content, "\n")
+
+    # Send with ARTICLE response code
+    send_multi_line_response(socket, 220, "#{article_num} #{AwfulNntp.Mapping.generate_message_id(thread_id, post.id)}", article_lines)
+  end
+
+  defp count_lines(content) do
+    content
+    |> String.split("\n")
+    |> length()
   end
 
   # Helper functions for responses
