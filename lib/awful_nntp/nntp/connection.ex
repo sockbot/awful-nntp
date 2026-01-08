@@ -338,13 +338,17 @@ defmodule AwfulNntp.NNTP.Connection do
     # Parse article number to get thread_id and post_number
     {thread_id, post_number} = AwfulNntp.Mapping.parse_article_number(article_num)
 
+    Logger.debug("Fetching article #{article_num}: thread=#{thread_id}, post=#{post_number}, authenticated=#{state.authenticated}")
+
     # Fetch the thread
     client = state.sa_client || Req.new(base_url: "https://forums.somethingawful.com")
 
     case AwfulNntp.SA.Client.fetch_thread(client, thread_id) do
       {:ok, html} ->
+        Logger.debug("Fetched thread HTML: #{String.length(html)} bytes")
         case AwfulNntp.SA.Parser.parse_posts(html) do
           {:ok, posts} ->
+            Logger.debug("Parsed #{length(posts)} posts from thread")
             # Get the specific post by number (1-indexed)
             case Enum.at(posts, post_number - 1) do
               nil ->
