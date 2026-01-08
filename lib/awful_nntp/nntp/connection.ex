@@ -230,9 +230,9 @@ defmodule AwfulNntp.NNTP.Connection do
         state
 
       group ->
-        # Generate article numbers for first 10 articles
+        # Generate article numbers - limit to first 1000 to avoid excessive output
         article_numbers = 
-          group.first..min(group.first + 9, group.last)
+          group.first..min(group.first + 999, group.last)
           |> Enum.map(&Integer.to_string/1)
         
         send_multi_line_response(
@@ -267,9 +267,9 @@ defmodule AwfulNntp.NNTP.Connection do
                   count: count
                 }
                 
-                # Return group info with limited article list (first 10)
+                # Return group info with limited article list (first 1000)
                 article_numbers = 
-                  first..min(first + 9, last)
+                  first..min(first + 999, last)
                   |> Enum.map(&Integer.to_string/1)
                 
                 send_multi_line_response(
