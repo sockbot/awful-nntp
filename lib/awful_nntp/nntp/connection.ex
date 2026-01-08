@@ -449,8 +449,10 @@ defmodule AwfulNntp.NNTP.Connection do
     # For XREF: format is "article_num groupname:article_num"
     max_results = 100
     
-    start_num..end_num
-    |> Enum.take(max_results)
+    # Limit the range to prevent huge iterations
+    limited_end = min(start_num + max_results - 1, end_num)
+    
+    start_num..limited_end
     |> Enum.map(fn article_num ->
       if Map.has_key?(group.article_map, article_num) do
         case String.upcase(header) do
