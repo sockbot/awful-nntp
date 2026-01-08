@@ -13,7 +13,7 @@ defmodule AwfulNntp.SA.Client do
   Authenticates with SA forums and returns a Req client with cookies.
   """
   def authenticate(username, password) do
-    Logger.info("Authenticating with SA forums as #{username}")
+    Logger.info("Authenticating with SA forums")
 
     # Create initial client
     client = Req.new(base_url: @sa_base_url)

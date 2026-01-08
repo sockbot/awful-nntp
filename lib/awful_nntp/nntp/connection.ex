@@ -42,7 +42,13 @@ defmodule AwfulNntp.NNTP.Connection do
   def handle_info({:tcp, socket, data}, state) do
     case Protocol.parse_command(data) do
       {:ok, command, args} ->
-        Logger.debug("Command received: #{command} #{inspect(args)}")
+        # Redact password from logs
+        safe_args = if command == :authinfo and length(args) == 2 and hd(args) == "PASS" do
+          ["PASS", "[REDACTED]"]
+        else
+          args
+        end
+        Logger.debug("Command received: #{command} #{inspect(safe_args)}")
         new_state = handle_command(command, args, state)
         {:noreply, new_state}
 
@@ -247,7 +253,7 @@ defmodule AwfulNntp.NNTP.Connection do
 
   defp handle_command(:authinfo, ["USER", username], state) do
     # Store username and ask for password
-    Logger.info("Auth attempt for user: #{username}")
+    Logger.info("Auth attempt for user: [REDACTED]")
     send_response(state.socket, 381, "Password required")
     %{state | username: username}
   end
@@ -262,12 +268,12 @@ defmodule AwfulNntp.NNTP.Connection do
       username ->
         case AwfulNntp.SA.Client.authenticate(username, password) do
           {:ok, sa_client} ->
-            Logger.info("Successfully authenticated #{username} with SA")
+            Logger.info("Successfully authenticated user with SA")
             send_response(state.socket, 281, "Authentication accepted")
             %{state | authenticated: true, sa_client: sa_client}
 
           {:error, reason} ->
-            Logger.error("Authentication failed for #{username}: #{inspect(reason)}")
+            Logger.error("Authentication failed: #{inspect(reason)}")
             send_response(state.socket, 481, "Authentication failed")
             state
         end
