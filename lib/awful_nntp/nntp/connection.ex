@@ -9,7 +9,7 @@ defmodule AwfulNntp.NNTP.Connection do
 
   alias AwfulNntp.NNTP.Protocol
 
-  defstruct [:socket, :current_group, :authenticated]
+  defstruct [:socket, :current_group, :authenticated, :username, :sa_client]
 
   @doc """
   Starts a connection handler for the given socket.
@@ -23,7 +23,9 @@ defmodule AwfulNntp.NNTP.Connection do
     state = %__MODULE__{
       socket: socket,
       current_group: nil,
-      authenticated: false
+      authenticated: false,
+      username: nil,
+      sa_client: nil
     }
 
     # Send welcome banner
@@ -150,13 +152,29 @@ defmodule AwfulNntp.NNTP.Connection do
     # Store username and ask for password
     Logger.info("Auth attempt for user: #{username}")
     send_response(state.socket, 381, "Password required")
-    state
+    %{state | username: username}
   end
 
-  defp handle_command(:authinfo, ["PASS", _password], state) do
-    # TODO: Implement actual SA authentication
-    send_response(state.socket, 281, "Authentication accepted")
-    %{state | authenticated: true}
+  defp handle_command(:authinfo, ["PASS", password], state) do
+    # Authenticate with SA using stored username
+    case state.username do
+      nil ->
+        send_response(state.socket, 482, "Authentication rejected - no username provided")
+        state
+
+      username ->
+        case AwfulNntp.SA.Client.authenticate(username, password) do
+          {:ok, sa_client} ->
+            Logger.info("Successfully authenticated #{username} with SA")
+            send_response(state.socket, 281, "Authentication accepted")
+            %{state | authenticated: true, sa_client: sa_client}
+
+          {:error, reason} ->
+            Logger.error("Authentication failed for #{username}: #{inspect(reason)}")
+            send_response(state.socket, 481, "Authentication failed")
+            state
+        end
+    end
   end
 
   defp handle_command(:authinfo, _args, state) do
