@@ -134,6 +134,28 @@ defmodule AwfulNntp.NNTP.Connection do
     state
   end
 
+  defp handle_command(:list, ["NEWSGROUPS"], state) do
+    # Return newsgroups with descriptions
+    case fetch_forum_list() do
+      {:ok, forums} ->
+        lines =
+          forums
+          |> Enum.map(fn forum ->
+            newsgroup = AwfulNntp.Mapping.forum_to_newsgroup(forum.name)
+            # Format: newsgroup description
+            description = forum.description || forum.name
+            "#{newsgroup} #{description}"
+          end)
+
+        send_multi_line_response(state.socket, 215, "Newsgroups follow", lines)
+        state
+
+      {:error, _reason} ->
+        send_multi_line_response(state.socket, 215, "Newsgroups follow", [])
+        state
+    end
+  end
+
   defp handle_command(:list, _args, state) do
     send_response(state.socket, 500, "Command not implemented")
     state
