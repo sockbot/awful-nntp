@@ -509,18 +509,18 @@ defmodule AwfulNntp.NNTP.Connection do
   end
 
   # Generate limited list of article numbers (to prevent memory exhaustion)
+  # Uses lazy evaluation to avoid generating millions of numbers
   defp generate_article_numbers_limited(threads, max_articles) do
     threads
-    |> Enum.flat_map(fn thread ->
+    |> Stream.flat_map(fn thread ->
       thread_id = String.to_integer(thread.id)
       # Generate article numbers for all posts (replies + 1 for OP)
       num_posts = thread.replies + 1
-      Enum.map(1..num_posts, fn post_num ->
+      Stream.map(1..num_posts, fn post_num ->
         AwfulNntp.Mapping.generate_article_number(thread_id, post_num)
       end)
     end)
-    |> Enum.sort()
-    |> Enum.take(max_articles)
+    |> Stream.take(max_articles)
     |> Enum.map(&Integer.to_string/1)
   end
 
