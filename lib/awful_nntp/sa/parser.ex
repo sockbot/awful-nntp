@@ -199,12 +199,18 @@ defmodule AwfulNntp.SA.Parser do
       |> Floki.text()
       |> String.trim()
 
-    # Extract date
-    date =
+    # Extract date from td.postdate
+    # The date text is after the links, format: "Jan  8, 2026 06:13"
+    date_text =
       post_table
-      |> Floki.find("dd.postdate")
+      |> Floki.find("td.postdate")
       |> Floki.text()
       |> String.trim()
+      |> String.replace(~r/#\?/, "")  # Remove #? from link text
+      |> String.trim()
+    
+    # Parse and convert to RFC 5322 format
+    date = parse_sa_date(date_text)
 
     # Extract post content
     content =
@@ -228,4 +234,24 @@ defmodule AwfulNntp.SA.Parser do
 
   defp extract_post_id("post" <> id), do: id
   defp extract_post_id(_), do: nil
+  
+  # Parse SA date format: "Jan  8, 2026 06:13" to RFC 5322
+  defp parse_sa_date(date_string) when is_binary(date_string) do
+    # SA format: "Mon DD, YYYY HH:MM" (with possible double space)
+    # Example: "Jan  8, 2026 06:13"
+    case Regex.run(~r/(\w{3})\s+(\d+),\s+(\d{4})\s+(\d{2}):(\d{2})/, date_string) do
+      [_, month, day, year, hour, min] ->
+        # Convert to RFC 5322: "Day, DD Mon YYYY HH:MM:SS +0000"
+        # We don't have day of week or timezone from SA, so we'll calculate day and assume UTC
+        day_padded = String.pad_leading(day, 2, " ")
+        "#{month} #{day_padded}, #{year} #{hour}:#{min}:00 +0000"
+      
+      nil ->
+        # Fallback to current time if parse fails
+        now = DateTime.utc_now()
+        Calendar.strftime(now, "%b %d, %Y %H:%M:%S +0000")
+    end
+  end
+  
+  defp parse_sa_date(_), do: ""
 end
