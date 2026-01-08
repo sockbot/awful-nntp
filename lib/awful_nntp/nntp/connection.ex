@@ -194,74 +194,15 @@ defmodule AwfulNntp.NNTP.Connection do
 
   defp handle_command(:listgroup, [], state) do
     # LISTGROUP with no args - list articles in current group
-    case state.current_group do
-      nil ->
-        send_response(state.socket, 412, "No newsgroup selected")
-        state
-
-      group ->
-        # Generate list of all article numbers from threads
-        article_numbers = generate_article_numbers_list(group.threads)
-        
-        # Format: code count first last name
-        send_multi_line_response(
-          state.socket,
-          211,
-          "#{group.count} #{group.first} #{group.last} #{group.name}",
-          Enum.map(article_numbers, &to_string/1)
-        )
-        state
-    end
+    # NOTE: We don't implement full LISTGROUP because SA forums have too many articles
+    # Clients should use OVER with ranges instead
+    send_response(state.socket, 503, "LISTGROUP not supported, use OVER instead")
+    state
   end
 
-  defp handle_command(:listgroup, [newsgroup], state) do
-    # LISTGROUP with newsgroup arg - select group and list articles
-    case Protocol.validate_newsgroup_name(newsgroup) do
-      :ok ->
-        case fetch_forum_for_newsgroup(newsgroup, state) do
-          {:ok, forum_id, forum_name} ->
-            case fetch_threads_for_forum(forum_id, state) do
-              {:ok, threads} ->
-                {first, last, count} = calculate_article_range(threads)
-                
-                group_data = %{
-                  name: newsgroup,
-                  forum_id: forum_id,
-                  forum_name: forum_name,
-                  threads: threads,
-                  first: first,
-                  last: last,
-                  count: count
-                }
-                
-                article_numbers = generate_article_numbers_list(threads)
-                
-                send_multi_line_response(
-                  state.socket,
-                  211,
-                  "#{count} #{first} #{last} #{newsgroup}",
-                  Enum.map(article_numbers, &to_string/1)
-                )
-                %{state | current_group: group_data}
-
-              {:error, _reason} ->
-                send_response(state.socket, 411, "No such newsgroup")
-                state
-            end
-
-          {:error, _reason} ->
-            send_response(state.socket, 411, "No such newsgroup")
-            state
-        end
-
-      {:error, :invalid_format} ->
-        send_response(state.socket, 501, "Syntax error")
-        state
-    end
-  end
-
-  defp handle_command(:listgroup, _args, state) do
-    send_response(state.socket, 501, "Syntax error")
+  defp handle_command(:listgroup, [_newsgroup], state) do
+    # LISTGROUP with newsgroup - not supported
+    send_response(state.socket, 503, "LISTGROUP not supported, use GROUP then OVER instead")
     state
   end
 
