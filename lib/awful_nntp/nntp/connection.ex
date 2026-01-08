@@ -229,8 +229,8 @@ defmodule AwfulNntp.NNTP.Connection do
         state
 
       group ->
-        # Generate article numbers for first 100 articles to avoid memory exhaustion
-        article_numbers = generate_article_numbers_limited(group.threads, 100)
+        # Generate article numbers for first 1 article to avoid memory exhaustion
+        article_numbers = generate_article_numbers_limited(group.threads, 1)
         
         send_multi_line_response(
           state.socket,
@@ -262,8 +262,8 @@ defmodule AwfulNntp.NNTP.Connection do
                   count: count
                 }
                 
-                # Return group info with limited article list (first 100)
-                article_numbers = generate_article_numbers_limited(threads, 100)
+                # Return group info with limited article list (first 1)
+                article_numbers = generate_article_numbers_limited(threads, 1)
                 
                 send_multi_line_response(
                   state.socket,
