@@ -9,7 +9,7 @@ defmodule AwfulNntp.NNTP.Connection do
 
   alias AwfulNntp.NNTP.Protocol
 
-  defstruct [:socket, :current_group, :authenticated, :username, :sa_client, :forum_cache]
+  defstruct [:socket, :current_group, :authenticated, :username, :sa_client, :forum_cache, :thread_cache]
 
   @doc """
   Starts a connection handler for the given socket.
@@ -26,7 +26,8 @@ defmodule AwfulNntp.NNTP.Connection do
       authenticated: false,
       username: nil,
       sa_client: nil,
-      forum_cache: %{}
+      forum_cache: %{},
+      thread_cache: %{}
     }
 
     # Send welcome banner
@@ -517,7 +518,7 @@ defmodule AwfulNntp.NNTP.Connection do
   end
 
   # Helper to fetch threads for a forum (multiple pages)
-  defp fetch_threads_for_forum(forum_id, state, max_pages \\ 3) do
+  defp fetch_threads_for_forum(forum_id, state, max_pages \\ 1) do
     client = case state.sa_client do
       nil ->
         # Use anonymous client
