@@ -43,8 +43,8 @@ defmodule AwfulNntp.NNTP.Connection do
   def handle_info({:tcp, socket, data}, state) do
     case Protocol.parse_command(data) do
       {:ok, command, args} ->
-        # Redact password from logs, suppress HEAD command logging (too noisy)
-        unless command == :head do
+        # Suppress noisy commands from logging (HEAD, NEXT, LAST)
+        unless command in [:head, :next, :last] do
           safe_args = if command == :authinfo and length(args) == 2 and hd(args) == "PASS" do
             ["PASS", "[REDACTED]"]
           else
