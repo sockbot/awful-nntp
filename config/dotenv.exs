@@ -1,7 +1,7 @@
 # Environment Configuration Helper
-# Load .env file for development
+# Load .awful-nntp.env file from home directory
 
-env_file = Path.join(__DIR__, "../.env")
+env_file = Path.expand("~/.awful-nntp.env")
 
 if File.exists?(env_file) do
   env_file
@@ -20,4 +20,15 @@ if File.exists?(env_file) do
       end
     end
   end)
+else
+  IO.warn("""
+  SA credentials file not found at ~/.awful-nntp.env
+  
+  To create it:
+    cp .awful-nntp.env.example ~/.awful-nntp.env
+    nano ~/.awful-nntp.env
+  
+  Then add your SA_USERNAME and SA_PASSWORD.
+  """)
 end
+
