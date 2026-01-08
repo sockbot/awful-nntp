@@ -326,6 +326,12 @@ defmodule AwfulNntp.NNTP.Connection do
   end
 
   # XHDR command - return header field for articles
+  defp handle_command(:xhdr, [], state) do
+    # XHDR with no args - invalid but return empty to keep tin happy
+    send_multi_line_response(state.socket, 221, "Header follows", [])
+    state
+  end
+
   defp handle_command(:xhdr, [_header | _rest], state) do
     # Tin uses XHDR to get Xref headers for threading
     # We don't support this - return empty response
