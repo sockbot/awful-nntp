@@ -325,6 +325,20 @@ defmodule AwfulNntp.NNTP.Connection do
     handle_command(:over, args, state)
   end
 
+  # XHDR command - return header field for articles
+  defp handle_command(:xhdr, [_header | _rest], state) do
+    # Tin uses XHDR to get Xref headers for threading
+    # We don't support this - return empty response
+    # This tells tin there are no cross-references
+    send_multi_line_response(state.socket, 221, "Header follows", [])
+    state
+  end
+
+  defp handle_command(:xhdr, _args, state) do
+    send_response(state.socket, 501, "Syntax error")
+    state
+  end
+
   defp handle_command(:authinfo, ["USER", username], state) do
     # Store username and ask for password
     Logger.info("Auth attempt for user: [REDACTED]")

@@ -18,6 +18,7 @@ defmodule AwfulNntp.NNTP.Protocol do
           | :authinfo
           | :over
           | :xover
+          | :xhdr
 
   @type parse_result :: {:ok, command(), [String.t()]} | {:error, atom()}
 
@@ -85,6 +86,7 @@ defmodule AwfulNntp.NNTP.Protocol do
       "AUTHINFO" -> {:ok, :authinfo, args}
       "OVER" -> {:ok, :over, args}
       "XOVER" -> {:ok, :xover, args}
+      "XHDR" -> {:ok, :xhdr, args}
       _ -> {:error, :unknown_command}
     end
   end
