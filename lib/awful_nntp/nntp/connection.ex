@@ -457,6 +457,10 @@ defmodule AwfulNntp.NNTP.Connection do
   defp parse_range(_), do: :error
 
   defp generate_overview_for_range(group, start_num, end_num) do
+    # Limit overview to prevent memory exhaustion
+    # If range is too large, cap it
+    max_overview = 1000
+    
     group.threads
     |> Enum.flat_map(fn thread ->
       thread_id = String.to_integer(thread.id)
@@ -478,6 +482,7 @@ defmodule AwfulNntp.NNTP.Connection do
       end)
     end)
     |> Enum.reject(&is_nil/1)
+    |> Enum.take(max_overview)  # Limit to first 1000 results
   end
 
   defp fetch_and_send_article(article_num, state) do
