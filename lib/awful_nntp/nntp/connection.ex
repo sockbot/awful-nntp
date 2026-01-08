@@ -100,16 +100,20 @@ defmodule AwfulNntp.NNTP.Connection do
     case fetch_forum_list() do
       {:ok, forums} ->
         # Convert to NNTP newsgroup format
+        # For each forum, we need to fetch thread counts to report article numbers
+        # But that's expensive, so for LIST we'll report placeholder numbers
+        # Clients will get real numbers when they use GROUP
         lines =
           forums
           |> Enum.map(fn forum ->
             newsgroup = AwfulNntp.Mapping.forum_to_newsgroup(forum.name)
             # Format: newsgroup high low status
-            # For now, use 0 1 y (posting allowed)
-            "#{newsgroup} 0 1 y"
+            # Use 1 1 y to indicate group has articles (tin needs high > 0)
+            "#{newsgroup} 1 1 y"
           end)
 
         send_multi_line_response(state.socket, 215, "Newsgroups follow", lines)
+        state
 
       {:error, _reason} ->
         # Fall back to empty list on error
@@ -162,14 +166,17 @@ defmodule AwfulNntp.NNTP.Connection do
   end
 
   defp handle_command(:group, [newsgroup], state) do
+    Logger.info("GROUP command for: #{newsgroup}")
     case Protocol.validate_newsgroup_name(newsgroup) do
       :ok ->
         # Fetch forum ID for this newsgroup
         case fetch_forum_for_newsgroup(newsgroup, state) do
           {:ok, forum_id, forum_name} ->
+            Logger.info("Found forum: #{forum_name} (ID: #{forum_id})")
             # Fetch threads for this forum (first page only)
             case fetch_threads_for_forum(forum_id, state) do
               {:ok, threads} ->
+                Logger.info("Fetched #{length(threads)} threads")
                 # Calculate article range
                 {first, last, count} = calculate_article_range(threads)
                 
