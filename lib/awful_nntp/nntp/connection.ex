@@ -222,19 +222,21 @@ defmodule AwfulNntp.NNTP.Connection do
   end
 
   defp handle_command(:listgroup, [], state) do
-    # LISTGROUP with no args - return empty list but acknowledge current group
+    # LISTGROUP with no args - return limited list of article numbers for current group
     case state.current_group do
       nil ->
         send_response(state.socket, 412, "No newsgroup selected")
         state
 
       group ->
-        # Return group info without listing articles (tin will use OVER instead)
+        # Generate article numbers for first 100 articles to avoid memory exhaustion
+        article_numbers = generate_article_numbers_limited(group.threads, 100)
+        
         send_multi_line_response(
           state.socket,
           211,
           "#{group.count} #{group.first} #{group.last} #{group.name}",
-          []  # Empty list - no article numbers
+          article_numbers
         )
         state
     end
@@ -260,12 +262,14 @@ defmodule AwfulNntp.NNTP.Connection do
                   count: count
                 }
                 
-                # Return group info without listing articles
+                # Return group info with limited article list (first 100)
+                article_numbers = generate_article_numbers_limited(threads, 100)
+                
                 send_multi_line_response(
                   state.socket,
                   211,
                   "#{count} #{first} #{last} #{newsgroup}",
-                  []  # Empty list
+                  article_numbers
                 )
                 %{state | current_group: group_data}
 
@@ -502,6 +506,22 @@ defmodule AwfulNntp.NNTP.Connection do
       end)
     end)
     |> Enum.sort()
+  end
+
+  # Generate limited list of article numbers (to prevent memory exhaustion)
+  defp generate_article_numbers_limited(threads, max_articles) do
+    threads
+    |> Enum.flat_map(fn thread ->
+      thread_id = String.to_integer(thread.id)
+      # Generate article numbers for all posts (replies + 1 for OP)
+      num_posts = thread.replies + 1
+      Enum.map(1..num_posts, fn post_num ->
+        AwfulNntp.Mapping.generate_article_number(thread_id, post_num)
+      end)
+    end)
+    |> Enum.sort()
+    |> Enum.take(max_articles)
+    |> Enum.map(&Integer.to_string/1)
   end
 
   # Article handling helpers
