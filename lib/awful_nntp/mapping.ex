@@ -72,7 +72,7 @@ defmodule AwfulNntp.Mapping do
   @doc """
   Formats SA post data as NNTP article headers.
   """
-  def format_article_headers(thread_id, post, post_number) do
+  def format_article_headers(thread_id, post, _post_number) do
     [
       "Path: forums.somethingawful.com",
       "From: #{post.author}@somethingawful.com",

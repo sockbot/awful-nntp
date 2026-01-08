@@ -110,20 +110,6 @@ defmodule AwfulNntp.NNTP.Connection do
     state
   end
 
-  # Helper to fetch forum list
-  defp fetch_forum_list() do
-    client = Req.new(base_url: "https://forums.somethingawful.com")
-
-    with {:ok, response} <- Req.get(client, url: "/"),
-         {:ok, forums} <- AwfulNntp.SA.Parser.parse_forum_list(response.body) do
-      {:ok, forums}
-    else
-      {:error, reason} ->
-        Logger.error("Failed to fetch forum list: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
   defp handle_command(:group, [newsgroup], state) do
     case Protocol.validate_newsgroup_name(newsgroup) do
       :ok ->
@@ -188,6 +174,22 @@ defmodule AwfulNntp.NNTP.Connection do
   end
 
   # Helper functions
+
+  # Helper to fetch forum list
+  defp fetch_forum_list() do
+    client = Req.new(base_url: "https://forums.somethingawful.com")
+
+    with {:ok, response} <- Req.get(client, url: "/"),
+         {:ok, forums} <- AwfulNntp.SA.Parser.parse_forum_list(response.body) do
+      {:ok, forums}
+    else
+      {:error, reason} ->
+        Logger.error("Failed to fetch forum list: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  # Helper functions for responses
 
   defp send_response(socket, code, message) do
     response = Protocol.format_response(code, message)
