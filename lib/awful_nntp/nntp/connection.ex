@@ -230,9 +230,11 @@ defmodule AwfulNntp.NNTP.Connection do
         state
 
       group ->
-        # Generate article numbers - limit to first 1000 to avoid excessive output
+        # Generate ALL article numbers - tin needs to know about all available articles
+        # This could be large (hundreds of thousands) but with sequential numbering
+        # it's just a list of integers converted to strings, which is manageable
         article_numbers = 
-          group.first..min(group.first + 999, group.last)
+          group.first..group.last
           |> Enum.map(&Integer.to_string/1)
         
         send_multi_line_response(
@@ -267,9 +269,9 @@ defmodule AwfulNntp.NNTP.Connection do
                   count: count
                 }
                 
-                # Return group info with limited article list (first 1000)
+                # Return ALL article numbers so tin knows what's available
                 article_numbers = 
-                  first..min(first + 999, last)
+                  first..last
                   |> Enum.map(&Integer.to_string/1)
                 
                 send_multi_line_response(
