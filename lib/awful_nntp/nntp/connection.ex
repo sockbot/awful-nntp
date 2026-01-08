@@ -82,10 +82,41 @@ defmodule AwfulNntp.NNTP.Connection do
   end
 
   defp handle_command(:list, _args, state) do
-    # TODO: Fetch actual forums from SA
-    # For now, return empty list
-    send_multi_line_response(state.socket, 215, "Newsgroups follow", [])
+    # Fetch forums from SA (public, no auth needed for list)
+    case fetch_forum_list() do
+      {:ok, forums} ->
+        # Convert to NNTP newsgroup format
+        lines =
+          forums
+          |> Enum.map(fn forum ->
+            newsgroup = AwfulNntp.Mapping.forum_to_newsgroup(forum.name)
+            # Format: newsgroup high low status
+            # For now, use 0 0 y (posting allowed)
+            "#{newsgroup} 0 1 y"
+          end)
+
+        send_multi_line_response(state.socket, 215, "Newsgroups follow", lines)
+
+      {:error, _reason} ->
+        # Fall back to empty list on error
+        send_multi_line_response(state.socket, 215, "Newsgroups follow", [])
+    end
+
     state
+  end
+
+  # Helper to fetch forum list
+  defp fetch_forum_list() do
+    client = Req.new(base_url: "https://forums.somethingawful.com")
+
+    with {:ok, response} <- Req.get(client, url: "/"),
+         {:ok, forums} <- AwfulNntp.SA.Parser.parse_forum_list(response.body) do
+      {:ok, forums}
+    else
+      {:error, reason} ->
+        Logger.error("Failed to fetch forum list: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
 
   defp handle_command(:group, [newsgroup], state) do
