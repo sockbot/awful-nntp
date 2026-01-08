@@ -177,15 +177,16 @@ defmodule AwfulNntp.NNTP.Connection do
             case fetch_threads_for_forum(forum_id, state) do
               {:ok, threads} ->
                 Logger.info("Fetched #{length(threads)} threads")
-                # Calculate article range
-                {first, last, count} = calculate_article_range(threads)
+                # Build sequential article number mapping
+                {article_map, first, last, count} = AwfulNntp.Mapping.build_article_map(threads)
                 
-                # Store group data with threads
+                # Store group data with threads and article mapping
                 group_data = %{
                   name: newsgroup,
                   forum_id: forum_id,
                   forum_name: forum_name,
                   threads: threads,
+                  article_map: article_map,
                   first: first,
                   last: last,
                   count: count
@@ -229,8 +230,10 @@ defmodule AwfulNntp.NNTP.Connection do
         state
 
       group ->
-        # Generate article numbers for first 1 article to avoid memory exhaustion
-        article_numbers = generate_article_numbers_limited(group.threads, 1)
+        # Generate article numbers for first 10 articles
+        article_numbers = 
+          group.first..min(group.first + 9, group.last)
+          |> Enum.map(&Integer.to_string/1)
         
         send_multi_line_response(
           state.socket,
@@ -250,20 +253,24 @@ defmodule AwfulNntp.NNTP.Connection do
           {:ok, forum_id, forum_name} ->
             case fetch_threads_for_forum(forum_id, state) do
               {:ok, threads} ->
-                {first, last, count} = calculate_article_range(threads)
+                # Build sequential article number mapping
+                {article_map, first, last, count} = AwfulNntp.Mapping.build_article_map(threads)
                 
                 group_data = %{
                   name: newsgroup,
                   forum_id: forum_id,
                   forum_name: forum_name,
                   threads: threads,
+                  article_map: article_map,
                   first: first,
                   last: last,
                   count: count
                 }
                 
-                # Return group info with limited article list (first 1)
-                article_numbers = generate_article_numbers_limited(threads, 1)
+                # Return group info with limited article list (first 10)
+                article_numbers = 
+                  first..min(first + 9, last)
+                  |> Enum.map(&Integer.to_string/1)
                 
                 send_multi_line_response(
                   state.socket,
@@ -480,50 +487,6 @@ defmodule AwfulNntp.NNTP.Connection do
     end
   end
 
-  # Calculate article number range from threads (first page only)
-  defp calculate_article_range([]), do: {0, 0, 0}
-  
-  defp calculate_article_range(threads) do
-    # Generate article numbers for all posts in all threads
-    article_numbers = generate_article_numbers_list(threads)
-
-    first = List.first(article_numbers, 0)
-    last = List.last(article_numbers, 0)
-    count = length(article_numbers)
-
-    {first, last, count}
-  end
-
-  # Generate sorted list of article numbers from threads
-  defp generate_article_numbers_list(threads) do
-    threads
-    |> Enum.flat_map(fn thread ->
-      thread_id = String.to_integer(thread.id)
-      # Generate article numbers for all posts (replies + 1 for OP)
-      num_posts = thread.replies + 1
-      Enum.map(1..num_posts, fn post_num ->
-        AwfulNntp.Mapping.generate_article_number(thread_id, post_num)
-      end)
-    end)
-    |> Enum.sort()
-  end
-
-  # Generate limited list of article numbers (to prevent memory exhaustion)
-  # Uses lazy evaluation to avoid generating millions of numbers
-  defp generate_article_numbers_limited(threads, max_articles) do
-    threads
-    |> Stream.flat_map(fn thread ->
-      thread_id = String.to_integer(thread.id)
-      # Generate article numbers for all posts (replies + 1 for OP)
-      num_posts = thread.replies + 1
-      Stream.map(1..num_posts, fn post_num ->
-        AwfulNntp.Mapping.generate_article_number(thread_id, post_num)
-      end)
-    end)
-    |> Stream.take(max_articles)
-    |> Enum.map(&Integer.to_string/1)
-  end
-
   # Article handling helpers
 
   defp parse_article_spec(spec) when is_binary(spec) do
@@ -585,71 +548,86 @@ defmodule AwfulNntp.NNTP.Connection do
   defp parse_range(_), do: :error
 
   defp generate_overview_for_range(group, start_num, end_num) do
-    # Limit overview to prevent memory exhaustion
-    # If range is too large, cap it
+    # Use the article_map to look up thread_id and post_num for each article number
+    # Only generate overviews for articles that actually exist in the map
     max_overview = 1000
     
-    group.threads
-    |> Enum.flat_map(fn thread ->
-      thread_id = String.to_integer(thread.id)
-      num_posts = thread.replies + 1
-
-      Enum.map(1..num_posts, fn post_num ->
-        article_num = AwfulNntp.Mapping.generate_article_number(thread_id, post_num)
-
-        if article_num >= start_num and article_num <= end_num do
-          AwfulNntp.Mapping.format_overview_line(
-            thread_id,
-            post_num,
-            thread.title,
-            thread.author
-          )
-        else
+    start_num..end_num
+    |> Enum.take(max_overview)
+    |> Enum.map(fn article_num ->
+      case Map.get(group.article_map, article_num) do
+        {thread_id, post_num} ->
+          # Find the thread for this article
+          thread = Enum.find(group.threads, fn t -> String.to_integer(t.id) == thread_id end)
+          
+          if thread do
+            AwfulNntp.Mapping.format_overview_line(
+              article_num,
+              thread_id,
+              post_num,
+              thread.title,
+              thread.author
+            )
+          else
+            nil
+          end
+        
+        nil ->
           nil
-        end
-      end)
+      end
     end)
     |> Enum.reject(&is_nil/1)
-    |> Enum.take(max_overview)  # Limit to first 1000 results
   end
 
   defp fetch_and_send_article(article_num, state) do
-    # Parse article number to get thread_id and post_number
-    {thread_id, post_number} = AwfulNntp.Mapping.parse_article_number(article_num)
+    # Look up article in the current group's article map
+    case state.current_group do
+      nil ->
+        send_response(state.socket, 412, "No newsgroup selected")
+        state
+      
+      group ->
+        case Map.get(group.article_map, article_num) do
+          nil ->
+            send_response(state.socket, 423, "No such article in group")
+            state
+          
+          {thread_id, post_number} ->
+            Logger.debug("Fetching article #{article_num}: thread=#{thread_id}, post=#{post_number}, authenticated=#{state.authenticated}")
 
-    Logger.debug("Fetching article #{article_num}: thread=#{thread_id}, post=#{post_number}, authenticated=#{state.authenticated}")
+            # Fetch the thread
+            client = state.sa_client || Req.new(base_url: "https://forums.somethingawful.com")
 
-    # Fetch the thread
-    client = state.sa_client || Req.new(base_url: "https://forums.somethingawful.com")
+            case AwfulNntp.SA.Client.fetch_thread(client, thread_id) do
+              {:ok, html} ->
+                Logger.debug("Fetched thread HTML: #{String.length(html)} bytes")
+                case AwfulNntp.SA.Parser.parse_posts(html) do
+                  {:ok, posts} ->
+                    Logger.debug("Parsed #{length(posts)} posts from thread")
+                    # Get the specific post by number (1-indexed)
+                    case Enum.at(posts, post_number - 1) do
+                      nil ->
+                        send_response(state.socket, 423, "No article with that number")
+                        state
 
-    case AwfulNntp.SA.Client.fetch_thread(client, thread_id) do
-      {:ok, html} ->
-        Logger.debug("Fetched thread HTML: #{String.length(html)} bytes")
-        case AwfulNntp.SA.Parser.parse_posts(html) do
-          {:ok, posts} ->
-            Logger.debug("Parsed #{length(posts)} posts from thread")
-            # Get the specific post by number (1-indexed)
-            case Enum.at(posts, post_number - 1) do
-              nil ->
-                send_response(state.socket, 423, "No article with that number")
-                state
+                      post ->
+                        # Format and send the article
+                        send_article(state.socket, article_num, thread_id, post, state)
+                        state
+                    end
 
-              post ->
-                # Format and send the article
-                send_article(state.socket, article_num, thread_id, post, state)
+                  {:error, reason} ->
+                    Logger.error("Failed to parse thread posts: #{inspect(reason)}")
+                    send_response(state.socket, 430, "No such article")
+                    state
+                end
+
+              {:error, reason} ->
+                Logger.error("Failed to fetch thread #{thread_id}: #{inspect(reason)}")
+                send_response(state.socket, 430, "No such article")
                 state
             end
-
-          {:error, reason} ->
-            Logger.error("Failed to parse thread posts: #{inspect(reason)}")
-            send_response(state.socket, 430, "No such article")
-            state
         end
-
-      {:error, reason} ->
-        Logger.error("Failed to fetch thread #{thread_id}: #{inspect(reason)}")
-        send_response(state.socket, 430, "No such article")
-        state
     end
   end
 

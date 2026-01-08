@@ -120,8 +120,8 @@ defmodule AwfulNntp.NNTP.ConnectionTest do
       :gen_tcp.send(client, "ARTICLE 123456\r\n")
 
       {:ok, response} = :gen_tcp.recv(client, 0, 1000)
-      # May return 423 (no article with that number) or 430 (no such article)
-      assert response =~ ~r/4(23|30)/
+      # May return 412 (no group selected), 423 (no article with that number) or 430 (no such article)
+      assert response =~ ~r/4(12|23|30)/
     end
 
     test "returns error without argument", %{client: client} do

@@ -31,19 +31,47 @@ defmodule AwfulNntp.Mapping do
   end
 
   @doc """
-  Generates NNTP article number from thread ID and post position.
+  Generates NNTP article number from thread ID and post position within a group.
   
-  Article number format: thread_id * 1000000 + post_number
-  This ensures unique, sequential article numbers per forum.
+  Uses simple sequential numbering (1, 2, 3...) within each group.
+  The mapping to actual thread_id/post_num is maintained in group state.
+  
+  This function now just returns the sequential index.
   """
-  def generate_article_number(thread_id, post_number) when is_integer(thread_id) do
-    thread_id * 1_000_000 + post_number
+  def generate_article_number(thread_index, post_number) when is_integer(thread_index) do
+    thread_index * 1_000_000 + post_number
   end
 
-  def generate_article_number(thread_id, post_number) when is_binary(thread_id) do
-    thread_id
+  def generate_article_number(thread_index, post_number) when is_binary(thread_index) do
+    thread_index
     |> String.to_integer()
     |> generate_article_number(post_number)
+  end
+
+  @doc """
+  Build sequential article number mapping for a list of threads.
+  Returns {article_map, first_article, last_article, count}
+  where article_map is %{article_num => {thread_id, post_num}}
+  """
+  def build_article_map(threads) do
+    {article_map, next_num} =
+      threads
+      |> Enum.sort_by(& &1.id)
+      |> Enum.reduce({%{}, 1}, fn thread, {map, article_num} ->
+        thread_id = String.to_integer(thread.id)
+        num_posts = thread.replies + 1
+        
+        # Create mapping for each post in this thread
+        {new_map, new_num} =
+          Enum.reduce(1..num_posts, {map, article_num}, fn post_num, {acc_map, curr_num} ->
+            {Map.put(acc_map, curr_num, {thread_id, post_num}), curr_num + 1}
+          end)
+        
+        {new_map, new_num}
+      end)
+    
+    count = next_num - 1
+    {article_map, 1, count, count}
   end
 
   @doc """
@@ -108,9 +136,8 @@ defmodule AwfulNntp.Mapping do
   
   For SA threads, we'll generate one overview line per post in the thread.
   """
-  def format_overview_line(thread_id, post_number, thread_title, thread_author \\ "Unknown") do
-    article_num = generate_article_number(thread_id, post_number)
-    message_id = generate_message_id(thread_id, article_num)
+  def format_overview_line(article_num, thread_id, post_number, thread_title, thread_author \\ "Unknown") do
+    message_id = generate_message_id(thread_id, post_number)
     
     # Format: article_num, subject, from, date, message-id, references, bytes, lines
     # We use placeholders for data we don't have at thread list level
