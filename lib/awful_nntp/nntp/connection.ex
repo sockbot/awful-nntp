@@ -9,7 +9,7 @@ defmodule AwfulNntp.NNTP.Connection do
 
   alias AwfulNntp.NNTP.Protocol
 
-  defstruct [:socket, :current_group, :authenticated, :username, :sa_client]
+  defstruct [:socket, :current_group, :authenticated, :username, :sa_client, :forum_cache]
 
   @doc """
   Starts a connection handler for the given socket.
@@ -25,7 +25,8 @@ defmodule AwfulNntp.NNTP.Connection do
       current_group: nil,
       authenticated: false,
       username: nil,
-      sa_client: nil
+      sa_client: nil,
+      forum_cache: %{}
     }
 
     # Send welcome banner
@@ -113,10 +114,44 @@ defmodule AwfulNntp.NNTP.Connection do
   defp handle_command(:group, [newsgroup], state) do
     case Protocol.validate_newsgroup_name(newsgroup) do
       :ok ->
-        # TODO: Fetch actual group info from SA
-        # For now, return placeholder
-        send_response(state.socket, 211, "0 0 0 #{newsgroup}")
-        %{state | current_group: newsgroup}
+        # Fetch forum ID for this newsgroup
+        case fetch_forum_for_newsgroup(newsgroup, state) do
+          {:ok, forum_id, forum_name} ->
+            # Fetch threads for this forum (first page only)
+            case fetch_threads_for_forum(forum_id, state) do
+              {:ok, threads} ->
+                # Calculate article range
+                {first, last, count} = calculate_article_range(threads)
+                
+                # Store group data with threads
+                group_data = %{
+                  name: newsgroup,
+                  forum_id: forum_id,
+                  forum_name: forum_name,
+                  threads: threads,
+                  first: first,
+                  last: last,
+                  count: count
+                }
+                
+                send_response(state.socket, 211, "#{count} #{first} #{last} #{newsgroup}")
+                %{state | current_group: group_data}
+
+              {:error, reason} ->
+                Logger.error("Failed to fetch threads: #{inspect(reason)}")
+                send_response(state.socket, 411, "No such newsgroup")
+                state
+            end
+
+          {:error, :not_found} ->
+            send_response(state.socket, 411, "No such newsgroup")
+            state
+
+          {:error, reason} ->
+            Logger.error("Failed to fetch forum list: #{inspect(reason)}")
+            send_response(state.socket, 503, "Program error, function not performed")
+            state
+        end
 
       {:error, :invalid_format} ->
         send_response(state.socket, 411, "No such newsgroup")
@@ -187,6 +222,77 @@ defmodule AwfulNntp.NNTP.Connection do
         Logger.error("Failed to fetch forum list: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  # Helper to find forum ID for a newsgroup
+  defp fetch_forum_for_newsgroup(newsgroup, state) do
+    # Check cache first
+    case Map.get(state.forum_cache, newsgroup) do
+      nil ->
+        # Fetch forum list and find matching forum
+        case fetch_forum_list() do
+          {:ok, forums} ->
+            case Enum.find(forums, fn forum ->
+              AwfulNntp.Mapping.forum_to_newsgroup(forum.name) == newsgroup
+            end) do
+              nil ->
+                {:error, :not_found}
+              
+              forum ->
+                {:ok, forum.id, forum.name}
+            end
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {forum_id, forum_name} ->
+        {:ok, forum_id, forum_name}
+    end
+  end
+
+  # Helper to fetch threads for a forum (first page only)
+  defp fetch_threads_for_forum(forum_id, state) do
+    client = case state.sa_client do
+      nil ->
+        # Use anonymous client
+        Req.new(base_url: "https://forums.somethingawful.com")
+      
+      sa_client ->
+        # Use authenticated client
+        sa_client
+    end
+
+    with {:ok, html} <- AwfulNntp.SA.Client.fetch_forum(client, forum_id),
+         {:ok, threads} <- AwfulNntp.SA.Parser.parse_thread_list(html) do
+      {:ok, threads}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Calculate article number range from threads (first page only)
+  defp calculate_article_range([]), do: {0, 0, 0}
+  
+  defp calculate_article_range(threads) do
+    # Generate article numbers for all posts in all threads
+    article_numbers =
+      threads
+      |> Enum.flat_map(fn thread ->
+        thread_id = String.to_integer(thread.id)
+        # Generate article numbers for all posts (replies + 1 for OP)
+        num_posts = thread.replies + 1
+        Enum.map(1..num_posts, fn post_num ->
+          AwfulNntp.Mapping.generate_article_number(thread_id, post_num)
+        end)
+      end)
+      |> Enum.sort()
+
+    first = List.first(article_numbers, 0)
+    last = List.last(article_numbers, 0)
+    count = length(article_numbers)
+
+    {first, last, count}
   end
 
   # Helper functions for responses
