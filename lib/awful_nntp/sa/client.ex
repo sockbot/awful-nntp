@@ -81,10 +81,10 @@ defmodule AwfulNntp.SA.Client do
   @doc """
   Fetches a forum's thread list.
   """
-  def fetch_forum(client, forum_id) do
-    Logger.debug("Fetching forum #{forum_id}")
+  def fetch_forum(client, forum_id, page \\ 1) do
+    Logger.debug("Fetching forum #{forum_id} page #{page}")
 
-    case Req.get(client, url: "/forumdisplay.php", params: [forumid: forum_id]) do
+    case Req.get(client, url: "/forumdisplay.php", params: [forumid: forum_id, pagenumber: page]) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, body}
 

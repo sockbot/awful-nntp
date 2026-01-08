@@ -514,8 +514,8 @@ defmodule AwfulNntp.NNTP.Connection do
     end
   end
 
-  # Helper to fetch threads for a forum (first page only)
-  defp fetch_threads_for_forum(forum_id, state) do
+  # Helper to fetch threads for a forum (multiple pages)
+  defp fetch_threads_for_forum(forum_id, state, max_pages \\ 3) do
     client = case state.sa_client do
       nil ->
         # Use anonymous client
@@ -526,11 +526,36 @@ defmodule AwfulNntp.NNTP.Connection do
         sa_client
     end
 
-    with {:ok, html} <- AwfulNntp.SA.Client.fetch_forum(client, forum_id),
-         {:ok, threads} <- AwfulNntp.SA.Parser.parse_thread_list(html) do
+    # Fetch multiple pages and combine results
+    pages = 1..max_pages
+    
+    threads = Enum.reduce_while(pages, [], fn page, acc ->
+      case AwfulNntp.SA.Client.fetch_forum(client, forum_id, page) do
+        {:ok, html} ->
+          case AwfulNntp.SA.Parser.parse_thread_list(html) do
+            {:ok, []} ->
+              # Empty page, stop fetching
+              {:halt, acc}
+            
+            {:ok, page_threads} ->
+              # Got threads, add them and continue
+              {:cont, acc ++ page_threads}
+            
+            {:error, _reason} ->
+              # Parse error, stop and return what we have
+              {:halt, acc}
+          end
+        
+        {:error, _reason} ->
+          # Fetch error, stop and return what we have
+          {:halt, acc}
+      end
+    end)
+    
+    if length(threads) > 0 do
       {:ok, threads}
     else
-      {:error, reason} -> {:error, reason}
+      {:error, :no_threads}
     end
   end
 
