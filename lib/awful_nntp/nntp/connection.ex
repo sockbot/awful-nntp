@@ -43,13 +43,15 @@ defmodule AwfulNntp.NNTP.Connection do
   def handle_info({:tcp, socket, data}, state) do
     case Protocol.parse_command(data) do
       {:ok, command, args} ->
-        # Redact password from logs
-        safe_args = if command == :authinfo and length(args) == 2 and hd(args) == "PASS" do
-          ["PASS", "[REDACTED]"]
-        else
-          args
+        # Redact password from logs, suppress HEAD command logging (too noisy)
+        unless command == :head do
+          safe_args = if command == :authinfo and length(args) == 2 and hd(args) == "PASS" do
+            ["PASS", "[REDACTED]"]
+          else
+            args
+          end
+          Logger.info("Command: #{command} #{inspect(safe_args)}")
         end
-        Logger.info("Command: #{command} #{inspect(safe_args)}")
         new_state = handle_command(command, args, state)
         {:noreply, new_state}
 
@@ -327,11 +329,11 @@ defmodule AwfulNntp.NNTP.Connection do
     state
   end
 
-  defp handle_command(:head, [article_spec], state) do
-    # HEAD returns just headers, not body - but we'd need to fetch the whole article
-    # For now, return 503 to indicate not supported efficiently
-    # Tin should use OVER instead for headers
-    send_response(state.socket, 503, "HEAD not efficiently supported, use OVER")
+  defp handle_command(:head, [_article_spec], state) do
+    # HEAD requires fetching full article just to return headers
+    # Tin sends these in bulk but we can't support efficiently
+    # Return 430 "no article" to make tin skip these
+    send_response(state.socket, 430, "No such article")
     state
   end
 
