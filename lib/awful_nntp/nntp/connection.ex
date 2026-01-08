@@ -372,17 +372,64 @@ defmodule AwfulNntp.NNTP.Connection do
     state
   end
 
-  defp handle_command(:xhdr, [_header | _rest], state) do
-    # Tin uses XHDR to get Xref headers for threading
-    # We don't support this - return empty response
-    # This tells tin there are no cross-references
-    send_multi_line_response(state.socket, 221, "Header follows", [])
-    state
+  defp handle_command(:xhdr, [header | rest], state) do
+    # XHDR header [range|msgid]
+    # Tin uses XHDR to get headers for threading
+    # We need to return actual data for articles that exist
+    
+    case state.current_group do
+      nil ->
+        send_response(state.socket, 412, "No newsgroup selected")
+        state
+      
+      group ->
+        # Parse range if provided
+        range_result = case rest do
+          [] -> {:single, group.first}  # Current article
+          [range_spec] -> parse_range(range_spec)
+        end
+        
+        case range_result do
+          {:range, start_num, end_num} ->
+            lines = generate_xhdr_for_range(group, header, start_num, end_num)
+            send_multi_line_response(state.socket, 221, "#{header} header follows", lines)
+            state
+          
+          {:single, article_num} ->
+            lines = generate_xhdr_for_range(group, header, article_num, article_num)
+            send_multi_line_response(state.socket, 221, "#{header} header follows", lines)
+            state
+          
+          _ ->
+            send_response(state.socket, 501, "Syntax error")
+            state
+        end
+    end
   end
-
-  defp handle_command(:xhdr, _args, state) do
-    send_response(state.socket, 501, "Syntax error")
-    state
+  
+  defp generate_xhdr_for_range(group, header, start_num, end_num) do
+    # Generate XHDR response: "article_num header_value"
+    # For XREF: format is "article_num groupname:article_num"
+    max_results = 100
+    
+    start_num..end_num
+    |> Enum.take(max_results)
+    |> Enum.map(fn article_num ->
+      if Map.has_key?(group.article_map, article_num) do
+        case String.upcase(header) do
+          "XREF" ->
+            # XREF format: "article_num hostname groupname:article_num"
+            "#{article_num} forums.somethingawful.com #{group.name}:#{article_num}"
+          
+          _ ->
+            # For other headers, just return empty
+            nil
+        end
+      else
+        nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
   end
 
   defp handle_command(:authinfo, ["USER", username], state) do
