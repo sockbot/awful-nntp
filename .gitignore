@@ -22,3 +22,12 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 awful_nntp-*.tar
 
+# Environment files with credentials
+.env
+.env.local
+config/secrets.exs
+
+# Sample HTML files
+/samples/
+
+
