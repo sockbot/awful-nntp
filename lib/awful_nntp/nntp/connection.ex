@@ -193,17 +193,67 @@ defmodule AwfulNntp.NNTP.Connection do
   end
 
   defp handle_command(:listgroup, [], state) do
-    # LISTGROUP with no args - list articles in current group
-    # NOTE: We don't implement full LISTGROUP because SA forums have too many articles
-    # Clients should use OVER with ranges instead
-    send_response(state.socket, 503, "LISTGROUP not supported, use OVER instead")
-    state
+    # LISTGROUP with no args - return empty list but acknowledge current group
+    case state.current_group do
+      nil ->
+        send_response(state.socket, 412, "No newsgroup selected")
+        state
+
+      group ->
+        # Return group info without listing articles (tin will use OVER instead)
+        send_multi_line_response(
+          state.socket,
+          211,
+          "#{group.count} #{group.first} #{group.last} #{group.name}",
+          []  # Empty list - no article numbers
+        )
+        state
+    end
   end
 
-  defp handle_command(:listgroup, [_newsgroup], state) do
-    # LISTGROUP with newsgroup - not supported
-    send_response(state.socket, 503, "LISTGROUP not supported, use GROUP then OVER instead")
-    state
+  defp handle_command(:listgroup, [newsgroup], state) do
+    # LISTGROUP with newsgroup - select group but don't list articles
+    case Protocol.validate_newsgroup_name(newsgroup) do
+      :ok ->
+        case fetch_forum_for_newsgroup(newsgroup, state) do
+          {:ok, forum_id, forum_name} ->
+            case fetch_threads_for_forum(forum_id, state) do
+              {:ok, threads} ->
+                {first, last, count} = calculate_article_range(threads)
+                
+                group_data = %{
+                  name: newsgroup,
+                  forum_id: forum_id,
+                  forum_name: forum_name,
+                  threads: threads,
+                  first: first,
+                  last: last,
+                  count: count
+                }
+                
+                # Return group info without listing articles
+                send_multi_line_response(
+                  state.socket,
+                  211,
+                  "#{count} #{first} #{last} #{newsgroup}",
+                  []  # Empty list
+                )
+                %{state | current_group: group_data}
+
+              {:error, _reason} ->
+                send_response(state.socket, 411, "No such newsgroup")
+                state
+            end
+
+          {:error, _reason} ->
+            send_response(state.socket, 411, "No such newsgroup")
+            state
+        end
+
+      {:error, :invalid_format} ->
+        send_response(state.socket, 501, "Syntax error")
+        state
+    end
   end
 
   defp handle_command(:article, [], state) do
@@ -229,25 +279,33 @@ defmodule AwfulNntp.NNTP.Connection do
   end
 
   defp handle_command(:over, [], state) do
+    Logger.info("OVER with no args - no current article")
     send_response(state.socket, 420, "Current article number is invalid")
     state
   end
 
   defp handle_command(:over, [range_or_msgid], state) do
+    Logger.info("OVER requested: #{range_or_msgid}")
+    
     case state.current_group do
       nil ->
+        Logger.info("OVER failed - no group selected")
         send_response(state.socket, 412, "No newsgroup selected")
         state
 
       group ->
         case parse_range(range_or_msgid) do
           {:range, start_num, end_num} ->
+            Logger.info("OVER range: #{start_num}-#{end_num}")
             overview_lines = generate_overview_for_range(group, start_num, end_num)
+            Logger.info("OVER returning #{length(overview_lines)} results")
             send_multi_line_response(state.socket, 224, "Overview information follows", overview_lines)
             state
 
           {:single, article_num} ->
+            Logger.info("OVER single: #{article_num}")
             overview_lines = generate_overview_for_range(group, article_num, article_num)
+            Logger.info("OVER returning #{length(overview_lines)} results")
             send_multi_line_response(state.socket, 224, "Overview information follows", overview_lines)
             state
 
@@ -256,6 +314,7 @@ defmodule AwfulNntp.NNTP.Connection do
             state
 
           :error ->
+            Logger.warning("OVER parse error: #{range_or_msgid}")
             send_response(state.socket, 501, "Syntax error")
             state
         end
