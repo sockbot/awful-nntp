@@ -122,13 +122,18 @@ defmodule AwfulNntp.SA.Client do
 
   defp get_cookies(response) do
     response
-    |> Map.get(:headers, [])
-    |> Enum.filter(fn {name, _value} -> String.downcase(name) == "set-cookie" end)
-    |> Enum.map(fn {_name, value} -> parse_cookie(value) end)
+    |> Map.get(:headers, %{})
+    |> Enum.filter(fn {name, _value} -> String.downcase(to_string(name)) == "set-cookie" end)
+    |> Enum.flat_map(fn {_name, value} ->
+      # value can be a string or list of strings
+      value = if is_list(value), do: value, else: [value]
+      Enum.map(value, &parse_cookie/1)
+    end)
+    |> Enum.reject(fn {k, _v} -> is_nil(k) end)
     |> Enum.into(%{})
   end
 
-  defp parse_cookie(cookie_string) do
+  defp parse_cookie(cookie_string) when is_binary(cookie_string) do
     cookie_string
     |> String.split(";")
     |> List.first()
@@ -138,6 +143,8 @@ defmodule AwfulNntp.SA.Client do
       _ -> {nil, nil}
     end
   end
+
+  defp parse_cookie(_), do: {nil, nil}
 
   defp format_cookies(cookies) do
     cookies
